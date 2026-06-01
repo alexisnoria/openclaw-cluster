@@ -17,9 +17,9 @@ CLR_RED='\033[0;31m'
 CLR_BLUE='\033[0;34m'
 CLR_RESET='\033[0m'
 
-info()    { echo -e "${CLR_BLUE}ℹ️  $*${CLR_RESET}"; }
+info() { echo -e "${CLR_BLUE}ℹ️  $*${CLR_RESET}"; }
 success() { echo -e "${CLR_GREEN}✅ $*${CLR_RESET}"; }
-error()   { echo -e "${CLR_RED}❌ $*${CLR_RESET}" >&2; }
+error() { echo -e "${CLR_RED}❌ $*${CLR_RESET}" >&2; }
 
 ensure_bats() {
   if command -v bats &>/dev/null; then
@@ -62,7 +62,15 @@ main() {
     exit 1
   fi
 
-  info "Ejecutando bats en ${TESTS_DIR}"
+  # Default to the whole suite if no test files were given
+  if [[ "$#" -eq 0 ]]; then
+    set -- "$TESTS_DIR"
+  else
+    # Append TESTS_DIR before user args so callers can pass flags like --tap
+    set -- "$TESTS_DIR" "$@"
+  fi
+
+  info "Ejecutando bats en $*"
   if bats "$@"; then
     success "Tests unitarios: PASS"
   else
