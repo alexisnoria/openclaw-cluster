@@ -28,6 +28,12 @@ if [[ -z "${__LIB_CLUSTER_SOURCED:-}" ]]; then
   # shellcheck disable=SC1090
   source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cluster.sh"
 fi
+# Requires lib/logging.sh for print_success, print_error, etc.
+if [[ -z "${__LIB_LOGGING_SOURCED:-}" ]]; then
+  # shellcheck source=lib/logging.sh
+  # shellcheck disable=SC1090
+  source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
+fi
 
 # ----------------------------------------------------------------------------
 # Path constants
@@ -292,8 +298,10 @@ cluster_set_telegram() {
 }
 
 # _update_instance_telegram <id> <bot_token> <dm_policy>
-# Internal helper: rewrites the channels.telegram block in openclaw.json.
-# Uses awk (PR #10 will migrate to jq).
+# Internal helper: rewrites the channels.telegram block in openclaw.json
+# using jq (since PR #10). The previous awk-based implementation was
+# fragile (regex on key names, brace counting). jq guarantees well-formed
+# JSON output regardless of existing structure.
 _update_instance_telegram() {
   local id="$1"
   local bot_token="$2"
@@ -306,40 +314,20 @@ _update_instance_telegram() {
     print_error "openclaw.json no encontrado en instance-${id}"
     return 1
   fi
+  require_command jq
 
-  # Remove existing "channels" top-level block (count braces)
-  awk '
-    BEGIN { skip = 0; depth = 0 }
-    /^  "channels": \{/ { skip = 1; depth = 1; next }
-    skip { if (/{/) depth++; if (/}/) depth--; if (depth == 0) { skip = 0 } next }
-    { print }
-  ' "$config_file" >"${config_file}.tmp"
-
-  # Remove existing TELEGRAM_BOT_TOKEN line from env
-  grep -v '"TELEGRAM_BOT_TOKEN"' "${config_file}.tmp" >"${config_file}.tmp2"
-  mv "${config_file}.tmp2" "${config_file}.tmp"
-
-  # Add TELEGRAM_BOT_TOKEN after OPENROUTER_API_KEY
-  awk -v tk="$bot_token" '
-    /"OPENROUTER_API_KEY"/ { print; print "    \"TELEGRAM_BOT_TOKEN\": \"" tk "\","; next }
-    { print }
-  ' "${config_file}.tmp" >"${config_file}.tmp2"
-  mv "${config_file}.tmp2" "${config_file}.tmp"
-
-  # Insert channels.telegram before closing }
-  awk -v tk="$bot_token" -v pol="$dm_policy" '
-    /^}$/ {
-      print "  \"channels\": {"
-      print "    \"telegram\": {"
-      print "      \"enabled\": true,"
-      print "      \"botToken\": \"" tk "\","
-      print "      \"dmPolicy\": \"" pol "\""
-      print "    }"
-      print "  }"
-    }
-    { print }
-  ' "${config_file}.tmp" >"${config_file}"
-  rm -f "${config_file}.tmp"
+  local tmp
+  tmp=$(mktemp)
+  jq --arg tk "$bot_token" --arg pol "$dm_policy" '
+    .env.TELEGRAM_BOT_TOKEN = $tk
+    | .channels = {
+        telegram: {
+          enabled: true,
+          botToken: $tk,
+          dmPolicy: $pol
+        }
+      }
+  ' "$config_file" >"$tmp" && mv "$tmp" "$config_file"
 
   print_success "instance-${id} actualizada con Telegram"
 }
