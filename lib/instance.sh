@@ -118,13 +118,13 @@ get_instance_ids_nl() {
 # get_highest_instance_id -> echo int, or 0 if none
 get_highest_instance_id() {
   local ids
-  ids=$(get_instance_ids)
-  if [[ -z "${ids// /}" ]]; then
+  ids=$(get_instance_ids_nl)
+  if [[ -z "$ids" ]]; then
     echo 0
     return
   fi
   # Last id in the sorted list is the highest
-  echo "${ids##* }"
+  echo "$ids" | tail -n 1
 }
 
 # get_lowest_instance_id -> echo int, or 0 if none

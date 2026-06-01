@@ -439,12 +439,19 @@ instance_compose() {
   docker compose -f "${dir}/docker-compose.yml" "$@"
 }
 
-cluster_start() {
-  check_docker
+# ------------------------------------------------------------------------------
+# _resolve_targets <target> [prompt] -> echoes target string (or exits on invalid)
+# _resolve_target_ids <target> -> echoes ids, one per line
+#
+# Shared by cluster_start / cluster_stop (and any future "act on N instances"
+# command). Behavior is byte-identical to v1.1.0's inline logic.
+# ------------------------------------------------------------------------------
+_resolve_targets() {
   local target="${1:-}"
+  local prompt="${2:-¿Qué instancias?}"
 
   if [[ -z "$target" ]]; then
-    echo "¿Qué deseas iniciar?"
+    echo "$prompt"
     echo "  [1] Todas las instancias"
     echo "  [2] Una instancia específica"
     echo "  [3] Rango de instancias (ej: 1-5)"
@@ -452,81 +459,64 @@ cluster_start() {
     choice=$(read_input "Selecciona" "1")
     case "$choice" in
       1) target="all" ;;
-      2) target=$(read_input "Número de instancia"); target="${target}" ;;
-      3) target=$(read_input "Rango (ej: 1-5)"); target="range:${target}" ;;
+      2) target=$(read_input "Número de instancia") ;;
+      3) target="range:$(read_input "Rango (ej: 1-5)")" ;;
       *) print_error "Opción inválida"; return 1 ;;
     esac
   fi
+  printf '%s' "$target"
+}
 
-  local ids=()
+_resolve_target_ids() {
+  local target="$1"
+  shift || true
   if [[ "$target" == "all" ]]; then
     for id in $(get_instance_ids); do
-      [[ -n "$id" ]] && ids+=("$id")
+      [[ -n "$id" ]] && echo "$id"
     done
   elif [[ "$target" == range:* ]]; then
     local range="${target#range:}"
-    local start_r end_r
-    start_r="${range%%-*}"
-    end_r="${range##*-}"
+    local start_r="${range%%-*}"
+    local end_r="${range##*-}"
+    local i
     for i in $(seq "$start_r" "$end_r"); do
-      ids+=("$i")
+      echo "$i"
     done
   else
-    ids+=("$target")
+    echo "$target"
   fi
+}
 
-  for id in ${ids[@]+"${ids[@]}"}; do
+cluster_start() {
+  check_docker
+  local target
+  target=$(_resolve_targets "${1:-}" "¿Qué deseas iniciar?") || return 1
+
+  local id
+  while IFS= read -r id; do
+    [[ -z "$id" ]] && continue
     if [[ -d "$(instance_dir "$id")" ]]; then
       print_info "Iniciando instance-${id} ..."
       instance_compose "$id" up -d openclaw-gateway || print_warn "Falló inicio de instance-${id}"
     else
       print_warn "Instancia ${id} no existe, omitiendo."
     fi
-  done
+  done < <(_resolve_target_ids "$target")
 }
 
 cluster_stop() {
   check_docker
-  local target="${1:-}"
+  local target
+  target=$(_resolve_targets "${1:-}" "¿Qué deseas detener?") || return 1
 
-  if [[ -z "$target" ]]; then
-    echo "¿Qué deseas detener?"
-    echo "  [1] Todas las instancias"
-    echo "  [2] Una instancia específica"
-    echo "  [3] Rango de instancias"
-    local choice
-    choice=$(read_input "Selecciona" "1")
-    case "$choice" in
-      1) target="all" ;;
-      2) target=$(read_input "Número de instancia"); target="${target}" ;;
-      3) target=$(read_input "Rango (ej: 1-5)"); target="range:${target}" ;;
-      *) print_error "Opción inválida"; return 1 ;;
-    esac
-  fi
-
-  local ids=()
-  if [[ "$target" == "all" ]]; then
-    for id in $(get_instance_ids); do
-      [[ -n "$id" ]] && ids+=("$id")
-    done
-  elif [[ "$target" == range:* ]]; then
-    local range="${target#range:}"
-    local start_r end_r
-    start_r="${range%%-*}"
-    end_r="${range##*-}"
-    for i in $(seq "$start_r" "$end_r"); do
-      ids+=("$i")
-    done
-  else
-    ids+=("$target")
-  fi
-
-  for id in "${ids[@]}"; do
+  local id
+  while IFS= read -r id; do
+    [[ -z "$id" ]] && continue
     if [[ -d "$(instance_dir "$id")" ]]; then
       print_info "Deteniendo instance-${id} ..."
       instance_compose "$id" down || print_warn "Falló detener instance-${id}"
     fi
-  done
+  done < <(_resolve_target_ids "$target")
 }
 
 cluster_restart() {

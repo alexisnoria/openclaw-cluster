@@ -102,6 +102,20 @@ expand_targets() {
   esac
 }
 
+# _resolve_target_ids "all"|"range:1-3"|"5" [<ids_from_cluster...>] -> echoes ids, one per line
+#
+# Used by cluster_start / cluster_stop / cluster_restart. Same as expand_targets
+# but emits one id per line (handles "all" with no provided ids gracefully by
+# returning empty, just like expand_targets).
+#
+# Compatibility note: matches the v1.1.0 logic exactly:
+#   - "all"     -> echoes all provided ids (one per line)
+#   - "range:N-M" -> expands to N..M inclusive
+#   - anything else -> echoes it as a single id
+_resolve_target_ids() {
+  expand_targets "$@"
+}
+
 # ----------------------------------------------------------------------------
 # Token / path safety
 # ----------------------------------------------------------------------------
