@@ -1,0 +1,20 @@
+# shellcheck configuration
+# https://github.com/koalaman/shellcheck/blob/master/shellcheckrc.example
+
+# Default shell dialect (bash)
+shell=bash
+
+# Severity level: style|info|warning|error
+severity=warning
+
+# Enable optional checks
+enable=add-default-case
+enable=avoid-nullary-conditions
+enable=quote-params
+enable=deprecate-which
+
+# Source paths
+source-path=SCRIPTDIR
+
+# Exclude generated/vendor paths
+exclude=tests/bats/helpers

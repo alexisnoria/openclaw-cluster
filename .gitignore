@@ -1,3 +1,39 @@
+# .gitignore — OpenClaw Cluster Manager
+
+# --- Secrets / config (nunca al repo) ---
 .env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+
+# --- Runtime: datos generados por instancia ---
 instances/
 backups/
+*.bak
+*.tmp
+*.swp
+
+# --- Testing / coverage ---
+coverage/
+.nyc_output/
+bats-tmp/
+.bats/
+
+# --- Editor / OS ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.iml
+
+# --- Docker build artifacts ---
+docker-compose.override.yml
+.docker/
+
+# --- Misc ---
+*.log
+*.pid

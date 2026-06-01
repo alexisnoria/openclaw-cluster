@@ -1,0 +1,8 @@
+# .github/CODEOWNERS
+# Default reviewers for the entire repo.
+# Adjust @alexisnoria to your GitHub handle after forking.
+
+*       @alexisnoria
+
+# CI changes need a second pair of eyes
+/.github/   @alexisnoria
