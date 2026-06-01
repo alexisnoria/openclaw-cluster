@@ -1,0 +1,111 @@
+# OpenClaw Cluster - Docker Compose Template per Instance
+# Variables replaced by the cluster manager:
+#   {{INSTANCE_ID}}       -> numeric instance id (1, 2, 3...)
+#   {{INSTANCE_NAME}}     -> instance-1, instance-2...
+#   {{GATEWAY_PORT}}      -> external mapped gateway port
+#   {{BRIDGE_PORT}}       -> external mapped bridge port
+#   {{NETWORK_NAME}}      -> isolated bridge network name
+#   {{CONFIG_DIR}}        -> host path to instance config
+#   {{WORKSPACE_DIR}}     -> host path to instance workspace
+#   {{HOME_DIR}}          -> host path to instance home (caches)
+#   {{GATEWAY_TOKEN}}     -> generated auth token
+#   {{TZ}}                -> timezone
+
+name: "{{INSTANCE_NAME}}"
+
+services:
+  openclaw-gateway:
+    container_name: "{{INSTANCE_NAME}}-gateway"
+    image: openclaw-cluster:latest
+    restart: unless-stopped
+    init: true
+    networks:
+      - {{NETWORK_NAME}}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "{{GATEWAY_PORT}}:18789"
+      - "{{BRIDGE_PORT}}:18790"
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      NODE_ENV: production
+      TZ: "{{TZ}}"
+      OPENCLAW_GATEWAY_TOKEN: "{{GATEWAY_TOKEN}}"
+      OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: ""
+      OPENCLAW_DISABLE_BONJOUR: "1"
+      # Browser env overrides
+      OPENCLAW_BROWSER_HEADLESS: "{{BROWSER_HEADLESS}}"
+      PLAYWRIGHT_BROWSERS_PATH: /home/node/.cache/ms-playwright
+    volumes:
+      - type: bind
+        source: "{{CONFIG_DIR}}"
+        target: /home/node/.openclaw
+      - type: bind
+        source: "{{WORKSPACE_DIR}}"
+        target: /home/node/.openclaw/workspace
+      - type: bind
+        source: "{{HOME_DIR}}"
+        target: /home/node
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    command:
+      [
+        "node",
+        "dist/index.js",
+        "gateway",
+        "--bind",
+        "lan",
+        "--port",
+        "18789",
+        "--allow-unconfigured"
+      ]
+
+  openclaw-cli:
+    container_name: "{{INSTANCE_NAME}}-cli"
+    image: openclaw-cluster:latest
+    network_mode: "service:openclaw-gateway"
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    init: true
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      NODE_ENV: production
+      TZ: "{{TZ}}"
+      OPENCLAW_GATEWAY_TOKEN: "{{GATEWAY_TOKEN}}"
+      BROWSER: echo
+    volumes:
+      - type: bind
+        source: "{{CONFIG_DIR}}"
+        target: /home/node/.openclaw
+      - type: bind
+        source: "{{WORKSPACE_DIR}}"
+        target: /home/node/.openclaw/workspace
+      - type: bind
+        source: "{{HOME_DIR}}"
+        target: /home/node
+    stdin_open: true
+    tty: true
+    entrypoint: ["node", "dist/index.js"]
+    profiles:
+      - cli
+
+networks:
+  {{NETWORK_NAME}}:
+    driver: bridge
+    name: {{NETWORK_NAME}}
