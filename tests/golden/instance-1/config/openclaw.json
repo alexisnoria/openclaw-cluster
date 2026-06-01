@@ -1,0 +1,76 @@
+{
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "openrouter/golden/fixture-model"
+      },
+      "models": {
+        "openrouter/golden/fixture-model": {
+          "alias": "OpenRouter"
+        }
+      },
+      "workspace": "/home/node/.openclaw/workspace"
+    }
+  },
+  "auth": {
+    "profiles": {
+      "openrouter:default": {
+        "mode": "api_key",
+        "provider": "openrouter"
+      }
+    }
+  },
+  "browser": {
+    "defaultProfile": "openclaw",
+    "enabled": true,
+    "executablePath": "/usr/bin/google-chrome",
+    "headless": true,
+    "profiles": {
+      "openclaw": {
+        "cdpPort": 18800,
+        "color": "#FF4500"
+      }
+    }
+  },
+  "channels": {
+    "telegram": {
+      "botToken": "0000000000:AA-golden-telegram-fixture",
+      "dmPolicy": "pairing",
+      "enabled": true
+    }
+  },
+  "env": {
+    "OPENROUTER_API_KEY": "sk-or-v1-golden-fixture-0000000000000000",
+    "TELEGRAM_BOT_TOKEN": "0000000000:AA-golden-telegram-fixture"
+  },
+  "gateway": {
+    "auth": {
+      "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "bind": "lan",
+    "controlUi": {
+      "allowedOrigins": [
+        "http://localhost:18022",
+        "http://127.0.0.1:18022"
+      ]
+    },
+    "mode": "local",
+    "port": 18789
+  },
+  "plugins": {
+    "entries": {
+      "browser": {
+        "enabled": true
+      },
+      "duckduckgo": {
+        "enabled": true
+      },
+      "openai": {
+        "enabled": true
+      },
+      "openrouter": {
+        "enabled": true
+      }
+    }
+  }
+}
