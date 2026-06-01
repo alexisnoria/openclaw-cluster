@@ -13,6 +13,7 @@
 
 # Avoid loading twice
 if [[ -n "${__LIB_CLUSTER_SOURCED:-}" ]]; then
+  # shellcheck disable=SC2317
   return 0 2>/dev/null || true
 fi
 __LIB_CLUSTER_SOURCED=1
@@ -45,14 +46,14 @@ validate_yes() {
 instance_gateway_port() {
   local id="$1"
   local base="${2:-18000}"
-  echo $(( base + (id * 22) ))
+  echo $((base + (id * 22)))
 }
 
 # instance_bridge_port <id> [<base>] -> echo integer port
 instance_bridge_port() {
   local id="$1"
   local base="${2:-18000}"
-  echo $(( base + (id * 22) + 1 ))
+  echo $((base + (id * 22) + 1))
 }
 
 # instance_name <id> -> echo "instance-<id>"
@@ -101,6 +102,20 @@ expand_targets() {
   esac
 }
 
+# _resolve_target_ids "all"|"range:1-3"|"5" [<ids_from_cluster...>] -> echoes ids, one per line
+#
+# Used by cluster_start / cluster_stop / cluster_restart. Same as expand_targets
+# but emits one id per line (handles "all" with no provided ids gracefully by
+# returning empty, just like expand_targets).
+#
+# Compatibility note: matches the v1.1.0 logic exactly:
+#   - "all"     -> echoes all provided ids (one per line)
+#   - "range:N-M" -> expands to N..M inclusive
+#   - anything else -> echoes it as a single id
+_resolve_target_ids() {
+  expand_targets "$@"
+}
+
 # ----------------------------------------------------------------------------
 # Token / path safety
 # ----------------------------------------------------------------------------
@@ -130,5 +145,6 @@ if [[ -t 1 ]]; then
   C_BLUE='\033[0;34m'
   C_RESET='\033[0m'
 else
+  # shellcheck disable=SC2034
   C_RED='' C_GREEN='' C_YELLOW='' C_BLUE='' C_RESET=''
 fi

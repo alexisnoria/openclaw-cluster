@@ -1,39 +1,44 @@
-# tests/bats/README.md
+# tests/
 
-Esta carpeta contiene los **tests unitarios** del proyecto, escritos con [bats](https://github.com/bats-core/bats-core).
+Tests for OpenClaw Cluster Manager, split into two suites.
 
-## Estructura
+## Layout
 
 ```
 tests/
-├── bats/
-│   ├── helpers/
-│   │   └── load.bash         # sourcea lib/cluster.sh y define aserciones
-│   ├── validation.bats       # validate_number, validate_range, validate_yes
-│   ├── instance.bats         # instance_gateway_port, instance_bridge_port, instance_name, instance_dir
-│   ├── targets.bats          # expand_targets
-│   └── safety.bats           # is_safe_token, safe_path_component
-└── README.md
+├── bats/                          # Unit tests — no Docker, fast
+│   ├── helpers/load.bash
+│   ├── validation.bats
+│   ├── instance.bats
+│   ├── targets.bats
+│   └── safety.bats
+└── integration/                   # Integration tests — need Docker daemon
+    ├── helpers/setup.bash
+    ├── init.bats                  # init creates correct layout & config
+    ├── config.bats                # set-openrouter-key, set-telegram
+    ├── commands.bats              # batch dispatcher + error paths
+    ├── ports.bats                 # port allocation & network names
+    ├── scale.bats                 # scale +N / -N
+    └── backup.bats                # backup / restore round-trip
 ```
 
-## Ejecutar
+## Running
 
-```bash
-make test-unit
-# o directamente:
-./scripts/test-unit.sh
-```
+| Command | What it does | Speed | Needs |
+|---|---|---|---|
+| `make test-unit` | bats unit tests | < 5s | bats |
+| `make test-integration` | bats integration tests | 30-90s | bats, docker |
+| `make test` | both | < 2 min | all |
+| `make lint` | shellcheck + shfmt | < 5s | shellcheck, shfmt |
+| `make doctor` | project structure | < 1s | bash |
 
-## Convenciones
+## Integration test rules
 
-- Cada `.bats` agrupa tests por módulo lógico.
-- Los tests son **puros**: no requieren Docker, ni red, ni estado.
-- Las funciones bajo prueba viven en `lib/cluster.sh`.
-- Para añadir una nueva función testable:
-  1. Agrégala a `lib/cluster.sh` (sin side effects).
-  2. Crea/edita un `.bats` que la cubra.
-  3. `make test-unit` debe pasar.
+- Every test runs in an **isolated sandbox** (copy of the repo in `$TMPDIR`).
+- `teardown()` removes the sandbox and stops any leftover containers.
+- Tests that require the docker daemon **skip with a clear message** if docker isn't running.
+- They are **not** part of `make test`; run them explicitly with `make test-integration` or in CI via `workflow_dispatch`.
 
-## Integración (futuro)
+## Phase 2 safety net
 
-`tests/integration/` albergará pruebas con Docker real. No se ejecutan en CI por defecto (requieren trigger manual) para mantener el feedback rápido.
+`tests/integration/` was created in PR #1 of Phase 2 to capture v1.1.0 behavior. **Every subsequent PR in Phase 2 must keep all these tests green.** A refactor that breaks them is a refactor that changes user-visible behavior.

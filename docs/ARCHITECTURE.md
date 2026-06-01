@@ -9,10 +9,27 @@ OpenClaw Cluster Manager is a single-host, multi-instance Docker orchestrator. I
 │  Host (your laptop / server)                                     │
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────────┐  │
-│  │  openclaw-cluster.sh  (orchestrator, single source of truth)│  │
-│  │  ├── lib/cluster.sh   (pure helpers)                       │  │
-│  │  ├── scripts/lint.sh  (shellcheck + shfmt)                 │  │
-│  │  └── scripts/test-unit.sh (bats runner)                    │  │
+│  │  bin/openclaw-cluster   (canonical entry point)            │  │
+│  │     │                                                      │  │
+│  │     ├─▶ openclaw-cluster.sh  (1-line shim, backward compat)│  │
+│  │     │                                                      │  │
+│  │     └─▶ lib/  (sourced in order)                           │  │
+│  │          ├── cluster.sh    (validate_*, naming, paths)      │  │
+│  │          ├── logging.sh    (print_*, log_*, colors)        │  │
+│  │          ├── ui.sh         (read_input, read_confirm)      │  │
+│  │          ├── instance.sh   (instance_*, set_openrouter,     │  │
+│  │          │                 set_telegram)                    │  │
+│  │          ├── template.sh   (gen_*, render_compose)         │  │
+│  │          ├── lifecycle.sh  (init/start/stop/restart/      │  │
+│  │          │                 update/scale)                   │  │
+│  │          ├── status.sh     (status/logs/exec/tokens/      │  │
+│  │          │                 dashboard)                      │  │
+│  │          ├── config.sh     (edit openclaw.json)            │  │
+│  │          ├── destroy.sh    (destroy, clean_all)            │  │
+│  │          ├── backup.sh     (backup, restore)               │  │
+│  │          ├── menu.sh       (show_menu, run_interactive)    │  │
+│  │          ├── batch.sh      (run_batch, batch_usage)        │  │
+│  │          └── main.sh       (main entry point)              │  │
 │  └────────────────────────────────────────────────────────────┘  │
 │                              │                                   │
 │                              │ docker compose -f                 │
@@ -50,28 +67,75 @@ OpenClaw Cluster Manager is a single-host, multi-instance Docker orchestrator. I
 
 ## Components
 
-### `openclaw-cluster.sh` — orchestrator
+### `bin/openclaw-cluster` — entry point
 
-A 1 298-line Bash script (intentionally kept monolithic in v1.x for stability). It implements:
+The canonical entry point. It:
 
-- `cluster_init` — build image, create N instances
-- `cluster_start` / `cluster_stop` / `cluster_restart` — Docker compose lifecycle
-- `cluster_status` — formatted table
-- `cluster_logs` — `docker compose logs`
-- `cluster_exec` — `docker compose exec`
-- `cluster_config` — edit `openclaw.json` in `$EDITOR`
-- `cluster_destroy` / `cluster_clean_all` — teardown with typed confirmation
-- `cluster_update` — rebuild + recreate
-- `cluster_backup` / `cluster_restore` — tar.gz snapshot of an instance
-- `cluster_scale` — add/remove instances
-- `cluster_tokens` / `cluster_dashboard` — show / open gateway URL
-- `cluster_set_openrouter_key` / `cluster_set_telegram` — live config update
+1. Resolves the repo root from `BASH_SOURCE[0]`.
+2. Exports cluster-wide config (`CLUSTER_DIR`, `INSTANCES_DIR`, `TEMPLATE_FILE`, `DOCKERFILE`, `IMAGE_NAME`, `BASE_PORT`).
+3. Sources every `lib/*.sh` in alphabetical order (each lib guards against double-source via `__LIB_*_SOURCED`).
+4. Calls `main "$@"`.
 
-It runs in two modes: **interactive menu** (no args) and **batch** (first arg = command).
+`openclaw-cluster.sh` at the repo root is a 1-line shim that `exec`s this binary, preserving backward compatibility with existing invocations.
+
+### `lib/*.sh` — modular libraries
+
+Each lib is self-contained, idempotent (re-source safe), and declares its own dependencies at the top. The libs form a clean dependency DAG:
+
+```
+       ┌────────────┐
+       │ cluster.sh │  (leaf: pure functions, no I/O)
+       └─────┬──────┘
+             │ foundation for everyone
+   ┌─────────┼─────────┬──────────┬──────────┐
+   ▼         ▼         ▼          ▼          ▼
+ logging   ui.sh   instance  template   (no deps:
+ .sh                .sh       .sh         destroy,
+   │                 │         │          backup,
+   │                 ▼         │          status,
+   └────────────►    ├────◄────┘          config,
+                     │                   lifecycle)
+                     ▼
+              (lifecycle/status/config/destroy/backup
+               use all of cluster/logging/ui/instance/template)
+```
+
+### Per-lib responsibilities
+
+| Lib | Responsibility | Testable in bats |
+| --- | --- | --- |
+| `cluster.sh` | `validate_number`, `validate_range`, `validate_yes`, instance naming, port math, `expand_targets`, `is_safe_token`, `safe_path_component` | yes (pure) |
+| `logging.sh` | `print_success` / `print_info` / `print_warn` / `print_error` / `print_cmd` + `log_*` + color constants | yes (string output) |
+| `ui.sh` | `read_input` / `read_confirm` / `read_confirm_strong` / `section_header` | yes (stubbed stdin) |
+| `instance.sh` | `instance_*`, `generate_token`, `require_command`, `check_docker`, `instance_compose`, `cluster_set_openrouter_key`, `cluster_set_telegram` | yes (pure helpers) |
+| `template.sh` | `gen_openclaw_json` / `gen_auth_profiles` / `gen_auth_state` / `gen_models_json` / `gen_instance_env` / `render_compose` | yes (golden files) |
+| `lifecycle.sh` | `cluster_init`, `_create_instance`, `cluster_start/stop/restart`, `cluster_update`, `cluster_scale` | yes (init is pure FS) |
+| `status.sh` | `cluster_status`, `cluster_logs`, `cluster_exec`, `cluster_tokens`, `cluster_dashboard` | partial (table render) |
+| `config.sh` | `cluster_config` | yes (file existence) |
+| `destroy.sh` | `cluster_destroy`, `cluster_clean_all` | partial (errors) |
+| `backup.sh` | `cluster_backup`, `cluster_restore` | yes (pure FS) |
+| `menu.sh` | `show_menu`, `run_interactive` | yes (rendering) |
+| `batch.sh` | `run_batch`, `batch_usage` | yes (dispatch table) |
+| `main.sh` | `main()` | integration only |
+
+The entry point runs in two modes: **interactive menu** (no args) and **batch** (first arg = command). The 18 batch commands are:
+
+- `init` — build image, create N instances
+- `start` / `stop` / `restart` — Docker compose lifecycle
+- `status` — formatted table
+- `logs` — `docker compose logs`
+- `exec` — `docker compose exec`
+- `config` — edit `openclaw.json` in `$EDITOR`
+- `destroy` / `clean` — teardown with typed confirmation
+- `update` — rebuild + recreate
+- `backup` / `restore` — tar.gz snapshot of an instance
+- `scale` — add/remove instances
+- `tokens` / `dashboard` — show / open gateway URL
+- `set-openrouter-key` / `set-telegram` — live config update
 
 ### `lib/cluster.sh` — pure helpers
 
-Extracted pure functions, currently used by tests and slated to be sourced by the main script in v1.2.0:
+The foundation library. Pure functions only, no I/O:
 
 - `validate_number`, `validate_range`, `validate_yes`
 - `instance_gateway_port`, `instance_bridge_port`, `instance_name`, `instance_dir`
@@ -139,29 +203,16 @@ Stride of 22 leaves room for future per-instance aux ports.
 
 | Path | Gitignored | Purpose |
 |------|------------|---------|
-| `openclaw-cluster.sh` | no | Orchestrator |
-| `lib/cluster.sh` | no | Pure helpers |
+| `bin/openclaw-cluster` | no | Canonical entry point |
+| `openclaw-cluster.sh` | no | 1-line shim (backward compat) |
+| `lib/*.sh` | no | Modular libraries (13 files) |
+| `scripts/*.sh` | no | Lint, test, golden-snapshot helpers |
+| `tests/bats/` | no | Unit tests (182 across 14 files) |
+| `tests/integration/` | no | End-to-end tests (42 across 6 files) |
+| `tests/golden/` | no | Byte-for-byte reference output |
 | `Dockerfile.openclaw-chrome` | no | Image recipe |
 | `docker-compose.template.yml` | no | Compose template |
 | `.env.example` | no | Sample env vars |
 | `.env` | **yes** | Local secrets (created by `init`) |
 | `instances/` | **yes** | Per-instance data |
 | `backups/` | **yes** | tar.gz snapshots |
-
-## Future architecture (post-1.x)
-
-```
-bin/openclaw-cluster  (thin entry-point, sources lib/*)
-lib/
-  ├── cluster.sh       (pure)
-  ├── logging.sh
-  ├── ui.sh
-  ├── docker.sh
-  ├── template.sh      (compose + openclaw.json render)
-  ├── lifecycle.sh     (start/stop/destroy/clean)
-  ├── backup.sh
-  ├── menu.sh
-  └── batch.sh
-```
-
-This is **Phase 2** in the roadmap. v1.1.0 adds the foundation; v1.2.0 will refactor without breaking compat.

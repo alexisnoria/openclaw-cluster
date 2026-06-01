@@ -35,10 +35,10 @@ test-unit: ## Run bats unit tests
 	./scripts/test-unit.sh
 
 .PHONY: test-integration
-test-integration: ## Run bats integration tests (requires Docker)
+test-integration: ## Run bats integration tests (requires Docker daemon)
 	@command -v docker >/dev/null 2>&1 || { echo "docker required" >&2; exit 1; }
 	@command -v bats    >/dev/null 2>&1 || { echo "bats required" >&2;    exit 1; }
-	bats tests/integration/
+	./scripts/test-integration.sh
 
 # ---- Build / Run ------------------------------------------------------------
 .PHONY: build

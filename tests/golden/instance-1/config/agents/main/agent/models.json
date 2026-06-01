@@ -1,0 +1,26 @@
+{
+  "providers": {
+    "openrouter": {
+      "api": "openai-completions",
+      "apiKey": "OPENROUTER_API_KEY",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "models": [
+        {
+          "contextWindow": 200000,
+          "cost": {
+            "input": 0,
+            "output": 0
+          },
+          "id": "golden/fixture-model",
+          "input": [
+            "text",
+            "image"
+          ],
+          "maxTokens": 8192,
+          "name": "OpenRouter Default",
+          "reasoning": false
+        }
+      ]
+    }
+  }
+}

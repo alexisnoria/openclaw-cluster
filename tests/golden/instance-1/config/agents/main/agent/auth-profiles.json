@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "openrouter:default": {
+      "key": "sk-or-v1-golden-fixture-0000000000000000",
+      "provider": "openrouter",
+      "type": "api_key"
+    }
+  },
+  "version": 1
+}

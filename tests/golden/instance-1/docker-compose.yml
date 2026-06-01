@@ -1,0 +1,111 @@
+# OpenClaw Cluster - Docker Compose Template per Instance
+# Variables replaced by the cluster manager:
+#   1       -> numeric instance id (1, 2, 3...)
+#   instance-1     -> instance-1, instance-2...
+#   18022      -> external mapped gateway port
+#   18023       -> external mapped bridge port
+#   oc-net-1      -> isolated bridge network name
+#   /Users/alexisnoria/openclaw-cluster/tests/golden/instance-1/config        -> host path to instance config
+#   /Users/alexisnoria/openclaw-cluster/tests/golden/instance-1/workspace     -> host path to instance workspace
+#   /Users/alexisnoria/openclaw-cluster/tests/golden/instance-1/home          -> host path to instance home (caches)
+#   aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa     -> generated auth token
+#   UTC                -> timezone
+
+name: "instance-1"
+
+services:
+  openclaw-gateway:
+    container_name: "instance-1-gateway"
+    image: openclaw-cluster:latest
+    restart: unless-stopped
+    init: true
+    networks:
+      - oc-net-1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "18022:18789"
+      - "18023:18790"
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      NODE_ENV: production
+      TZ: "UTC"
+      OPENCLAW_GATEWAY_TOKEN: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: ""
+      OPENCLAW_DISABLE_BONJOUR: "1"
+      # Browser env overrides
+      OPENCLAW_BROWSER_HEADLESS: "1"
+      PLAYWRIGHT_BROWSERS_PATH: /home/node/.cache/ms-playwright
+    volumes:
+      - type: bind
+        source: "/Users/alexisnoria/openclaw-cluster/tests/golden/instance-1/config"
+        target: /home/node/.openclaw
+      - type: bind
+        source: "/Users/alexisnoria/openclaw-cluster/tests/golden/instance-1/workspace"
+        target: /home/node/.openclaw/workspace
+      - type: bind
+        source: "/Users/alexisnoria/openclaw-cluster/tests/golden/instance-1/home"
+        target: /home/node
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    command:
+      [
+        "node",
+        "dist/index.js",
+        "gateway",
+        "--bind",
+        "lan",
+        "--port",
+        "18789",
+        "--allow-unconfigured"
+      ]
+
+  openclaw-cli:
+    container_name: "instance-1-cli"
+    image: openclaw-cluster:latest
+    network_mode: "service:openclaw-gateway"
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    init: true
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      NODE_ENV: production
+      TZ: "UTC"
+      OPENCLAW_GATEWAY_TOKEN: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      BROWSER: echo
+    volumes:
+      - type: bind
+        source: "/Users/alexisnoria/openclaw-cluster/tests/golden/instance-1/config"
+        target: /home/node/.openclaw
+      - type: bind
+        source: "/Users/alexisnoria/openclaw-cluster/tests/golden/instance-1/workspace"
+        target: /home/node/.openclaw/workspace
+      - type: bind
+        source: "/Users/alexisnoria/openclaw-cluster/tests/golden/instance-1/home"
+        target: /home/node
+    stdin_open: true
+    tty: true
+    entrypoint: ["node", "dist/index.js"]
+    profiles:
+      - cli
+
+networks:
+  oc-net-1:
+    driver: bridge
+    name: oc-net-1

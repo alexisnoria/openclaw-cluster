@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# bin/openclaw-cluster — canonical entry point for the OpenClaw Cluster
+# Manager. Sources all lib modules in dependency order, then dispatches
+# to the menu or batch handler.
+#
+# The legacy openclaw-cluster.sh at the repo root is now a 1-line shim
+# that execs this file, preserving backward compatibility with existing
+# invocations like `openclaw-cluster.sh start` or `./openclaw-cluster.sh`.
+#
+# Usage:
+#   bin/openclaw-cluster                 # interactive menu
+#   bin/openclaw-cluster <command> ...   # batch mode
+
+set -euo pipefail
+
+# Resolve repo root (this script lives in bin/, the repo root is parent)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
+
+# Cluster-wide configuration (override via env if needed)
+export CLUSTER_DIR="${CLUSTER_DIR:-${ROOT_DIR}}"
+export INSTANCES_DIR="${INSTANCES_DIR:-${CLUSTER_DIR}/instances}"
+export TEMPLATE_FILE="${TEMPLATE_FILE:-${CLUSTER_DIR}/docker-compose.template.yml}"
+export DOCKERFILE="${DOCKERFILE:-${CLUSTER_DIR}/Dockerfile.openclaw-chrome}"
+export IMAGE_NAME="${IMAGE_NAME:-openclaw-cluster}"
+export BASE_PORT="${BASE_PORT:-18000}"
+export BATCH_PROG="${BATCH_PROG:-${BASH_SOURCE[0]}}"
+
+# Source all lib modules in dependency order
+# shellcheck disable=SC1090
+for lib in "${ROOT_DIR}/lib/"*.sh; do
+  source "$lib"
+done
+
+# Dispatch
+main "$@"
