@@ -47,7 +47,8 @@ run_shellcheck() {
   local rc=0
   local f
   while IFS= read -r f; do
-    if ! shellcheck "$f"; then
+    # --severity=warning matches .shellcheckrc but also gates the exit code
+    if ! shellcheck --severity=warning "$f"; then
       rc=1
     fi
   done < <(sh_targets)
