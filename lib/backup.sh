@@ -45,7 +45,8 @@ cluster_backup() {
   if [[ -z "$id" ]]; then
     id=$(read_input "Número de instancia a respaldar")
   fi
-  local dir; dir=$(instance_dir "$id")
+  local dir
+  dir=$(instance_dir "$id")
   if [[ ! -d "$dir" ]]; then
     print_error "Instancia ${id} no existe."
     return 1
@@ -53,7 +54,8 @@ cluster_backup() {
 
   local backup_dir="${CLUSTER_DIR}/backups"
   mkdir -p "$backup_dir"
-  local timestamp; timestamp=$(date +%Y%m%d_%H%M%S)
+  local timestamp
+  timestamp=$(date +%Y%m%d_%H%M%S)
   local backup_file="${backup_dir}/instance-${id}_${timestamp}.tar.gz"
 
   print_info "Creando backup de instance-${id} ..."
@@ -91,7 +93,8 @@ cluster_restore() {
     id=$(read_input "Número de instancia destino (se sobrescribirá si existe)")
   fi
 
-  local target_dir; target_dir=$(instance_dir "$id")
+  local target_dir
+  target_dir=$(instance_dir "$id")
   if [[ -d "$target_dir" ]]; then
     print_warn "La instancia ${id} ya existe."
     if ! read_confirm "¿Sobrescribir datos existentes?"; then
@@ -106,7 +109,8 @@ cluster_restore() {
 
   print_info "Restaurando backup en instance-${id} ..."
   tar -xzf "$backup_file" -C "$INSTANCES_DIR"
-  local extracted; extracted=$(tar -tzf "$backup_file" | head -n1 | cut -d/ -f1)
+  local extracted
+  extracted=$(tar -tzf "$backup_file" | head -n1 | cut -d/ -f1)
   if [[ "$extracted" != "instance-${id}" && -d "${INSTANCES_DIR}/${extracted}" ]]; then
     mv "${INSTANCES_DIR}/${extracted}" "$target_dir"
   fi
@@ -119,11 +123,14 @@ cluster_restore() {
 
   local h="$headless"
   [[ "$h" == "yes" ]] && h="1" || h="0"
-  local gport; gport=$(instance_gateway_port "$id")
-  local bport; bport=$(instance_bridge_port "$id")
-  local token; token=$(generate_token)
+  local gport
+  gport=$(instance_gateway_port "$id")
+  local bport
+  bport=$(instance_bridge_port "$id")
+  local token
+  token=$(generate_token)
 
-  echo "OPENCLAW_GATEWAY_TOKEN=${token}" > "${target_dir}/.env"
+  echo "OPENCLAW_GATEWAY_TOKEN=${token}" >"${target_dir}/.env"
   sed -i.bak 's/"token": "[^"]*"/"token": "'"${token}"'"/' \
     "${target_dir}/config/openclaw.json" && rm -f "${target_dir}/config/openclaw.json.bak"
 
@@ -139,7 +146,7 @@ cluster_restore() {
     -e "s|{{GATEWAY_TOKEN}}|${token}|g" \
     -e "s|{{TZ}}|${tz}|g" \
     -e "s|{{BROWSER_HEADLESS}}|${h}|g" \
-    "$TEMPLATE_FILE" > "${target_dir}/docker-compose.yml"
+    "$TEMPLATE_FILE" >"${target_dir}/docker-compose.yml"
 
   chown -R 1000:1000 "${target_dir}/config" "${target_dir}/workspace" "${target_dir}/home" 2>/dev/null || true
 

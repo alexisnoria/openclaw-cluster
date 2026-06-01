@@ -172,3 +172,174 @@ instance_compose() {
   fi
   docker compose -f "${dir}/docker-compose.yml" "$@"
 }
+
+# ----------------------------------------------------------------------------
+# cluster_set_openrouter_key [target] [new_key]
+# Update the OpenRouter key in one or all instances + the cluster .env.
+# Pure-FS (no docker needed; just sed on JSON files).
+# ----------------------------------------------------------------------------
+cluster_set_openrouter_key() {
+  local target="${1:-}"
+  local new_key="${2:-}"
+
+  if [[ -z "$target" ]]; then
+    echo "¿Qué instancia deseas actualizar?"
+    echo "  [a] Todas las instancias"
+    echo "  [n] Número de instancia específica"
+    local choice
+    choice=$(read_input "Opción")
+    if [[ "$choice" == "a" ]]; then
+      target="all"
+    else
+      target="$choice"
+    fi
+  fi
+
+  if [[ -z "$new_key" ]]; then
+    new_key=$(read_input "Nueva OpenRouter API Key")
+  fi
+
+  if [[ "$target" == "all" ]]; then
+    local id
+    for id in $(get_instance_ids); do
+      _update_instance_openrouter_key "$id" "$new_key"
+    done
+    if [[ -f "${CLUSTER_DIR}/.env" ]]; then
+      sed -i "s|^OPENROUTER_API_KEY=.*|OPENROUTER_API_KEY=${new_key}|" "${CLUSTER_DIR}/.env"
+      print_success ".env actualizado"
+    fi
+  else
+    if [[ ! -d "$(instance_dir "$target")" ]]; then
+      print_error "Instancia ${target} no existe."
+      return 1
+    fi
+    _update_instance_openrouter_key "$target" "$new_key"
+  fi
+
+  print_success "OpenRouter API Key actualizada."
+}
+
+# _update_instance_openrouter_key <id> <new_key>
+# Internal helper: rewrites the key in openclaw.json and auth-profiles.json.
+_update_instance_openrouter_key() {
+  local id="$1"
+  local new_key="$2"
+  local dir
+  dir=$(instance_dir "$id")
+
+  local config_file="${dir}/config/openclaw.json"
+  if [[ -f "$config_file" ]]; then
+    sed -i "s|\"OPENROUTER_API_KEY\": \"[^\"]*\"|\"OPENROUTER_API_KEY\": \"${new_key}\"|" "$config_file"
+  fi
+
+  local auth_file="${dir}/config/agents/main/agent/auth-profiles.json"
+  if [[ -f "$auth_file" ]]; then
+    sed -i "s|\"key\": \"[^\"]*\"|\"key\": \"${new_key}\"|" "$auth_file"
+  fi
+
+  print_success "instance-${id} actualizada"
+}
+
+# ----------------------------------------------------------------------------
+# cluster_set_telegram [target] [bot_token] [dm_policy]
+# Adds/updates the Telegram bot config in one or all instances.
+# Pure-FS: uses awk to manipulate openclaw.json (PR #10 will migrate to jq).
+# ----------------------------------------------------------------------------
+cluster_set_telegram() {
+  local target="${1:-}"
+  local bot_token="${2:-}"
+  local dm_policy="${3:-}"
+
+  if [[ -z "$target" ]]; then
+    echo "¿Qué instancia deseas actualizar?"
+    echo "  [a] Todas las instancias"
+    echo "  [n] Número de instancia específica"
+    local choice
+    choice=$(read_input "Opción")
+    if [[ "$choice" == "a" ]]; then
+      target="all"
+    else
+      target="$choice"
+    fi
+  fi
+
+  if [[ -z "$bot_token" ]]; then
+    bot_token=$(read_input "Token de Telegram Bot (de @BotFather)" "")
+  fi
+  if [[ -z "$dm_policy" ]]; then
+    dm_policy=$(read_input "DM Policy (pairing/allowlist/open)" "pairing")
+  fi
+
+  if [[ "$target" == "all" ]]; then
+    local id
+    for id in $(get_instance_ids); do
+      _update_instance_telegram "$id" "$bot_token" "$dm_policy"
+    done
+    if [[ -f "${CLUSTER_DIR}/.env" ]]; then
+      sed -i "s|^TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=${bot_token}|" "${CLUSTER_DIR}/.env"
+      sed -i "s|^TELEGRAM_DM_POLICY=.*|TELEGRAM_DM_POLICY=${dm_policy}|" "${CLUSTER_DIR}/.env"
+      print_success ".env actualizado"
+    fi
+  else
+    if [[ ! -d "$(instance_dir "$target")" ]]; then
+      print_error "Instancia ${target} no existe."
+      return 1
+    fi
+    _update_instance_telegram "$target" "$bot_token" "$dm_policy"
+  fi
+
+  print_success "Telegram configurado correctamente."
+}
+
+# _update_instance_telegram <id> <bot_token> <dm_policy>
+# Internal helper: rewrites the channels.telegram block in openclaw.json.
+# Uses awk (PR #10 will migrate to jq).
+_update_instance_telegram() {
+  local id="$1"
+  local bot_token="$2"
+  local dm_policy="$3"
+  local dir
+  dir=$(instance_dir "$id")
+  local config_file="${dir}/config/openclaw.json"
+
+  if [[ ! -f "$config_file" ]]; then
+    print_error "openclaw.json no encontrado en instance-${id}"
+    return 1
+  fi
+
+  # Remove existing "channels" top-level block (count braces)
+  awk '
+    BEGIN { skip = 0; depth = 0 }
+    /^  "channels": \{/ { skip = 1; depth = 1; next }
+    skip { if (/{/) depth++; if (/}/) depth--; if (depth == 0) { skip = 0 } next }
+    { print }
+  ' "$config_file" >"${config_file}.tmp"
+
+  # Remove existing TELEGRAM_BOT_TOKEN line from env
+  grep -v '"TELEGRAM_BOT_TOKEN"' "${config_file}.tmp" >"${config_file}.tmp2"
+  mv "${config_file}.tmp2" "${config_file}.tmp"
+
+  # Add TELEGRAM_BOT_TOKEN after OPENROUTER_API_KEY
+  awk -v tk="$bot_token" '
+    /"OPENROUTER_API_KEY"/ { print; print "    \"TELEGRAM_BOT_TOKEN\": \"" tk "\","; next }
+    { print }
+  ' "${config_file}.tmp" >"${config_file}.tmp2"
+  mv "${config_file}.tmp2" "${config_file}.tmp"
+
+  # Insert channels.telegram before closing }
+  awk -v tk="$bot_token" -v pol="$dm_policy" '
+    /^}$/ {
+      print "  \"channels\": {"
+      print "    \"telegram\": {"
+      print "      \"enabled\": true,"
+      print "      \"botToken\": \"" tk "\","
+      print "      \"dmPolicy\": \"" pol "\""
+      print "    }"
+      print "  }"
+    }
+    { print }
+  ' "${config_file}.tmp" >"${config_file}"
+  rm -f "${config_file}.tmp"
+
+  print_success "instance-${id} actualizada con Telegram"
+}

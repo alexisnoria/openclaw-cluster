@@ -44,8 +44,10 @@ cluster_destroy() {
     id=$(read_input "Número de instancia a destruir")
   fi
 
-  local name; name=$(instance_name "$id")
-  local dir; dir=$(instance_dir "$id")
+  local name
+  name=$(instance_name "$id")
+  local dir
+  dir=$(instance_dir "$id")
 
   if [[ ! -d "$dir" ]]; then
     print_error "Instancia ${id} no existe."

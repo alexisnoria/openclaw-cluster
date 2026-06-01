@@ -76,7 +76,10 @@ _resolve_targets() {
       1) target="all" ;;
       2) target=$(read_input "Número de instancia") ;;
       3) target="range:$(read_input "Rango (ej: 1-5)")" ;;
-      *) print_error "Opción inválida"; return 1 ;;
+      *)
+        print_error "Opción inválida"
+        return 1
+        ;;
     esac
   fi
   printf '%s' "$target"
@@ -127,11 +130,16 @@ _create_instance() {
   local telegram_bot_token="${6:-}"
   local telegram_dm_policy="${7:-pairing}"
 
-  local name; name=$(instance_name "$id")
-  local dir; dir=$(instance_dir "$id")
-  local gport; gport=$(instance_gateway_port "$id")
-  local bport; bport=$(instance_bridge_port "$id")
-  local token; token=$(generate_token)
+  local name
+  name=$(instance_name "$id")
+  local dir
+  dir=$(instance_dir "$id")
+  local gport
+  gport=$(instance_gateway_port "$id")
+  local bport
+  bport=$(instance_bridge_port "$id")
+  local token
+  token=$(generate_token)
 
   print_info "Creando ${name} (puertos ${gport}/${bport}) ..."
 
@@ -152,7 +160,7 @@ _create_instance() {
     local tmp
     tmp=$(mktemp)
     jq --arg t "$token" '.gateway.auth.token = $t' \
-      "${dir}/config/openclaw.json" > "$tmp" && mv "$tmp" "${dir}/config/openclaw.json"
+      "${dir}/config/openclaw.json" >"$tmp" && mv "$tmp" "${dir}/config/openclaw.json"
   else
     # Fallback: in-place sed (matches v1.1.0 when jq is unavailable)
     sed -i.bak "s|\"token\": \"PLACEHOLDER_TOKEN\"|\"token\": \"${token}\"|" \
@@ -264,7 +272,7 @@ cluster_init() {
   mkdir -p "${INSTANCES_DIR}"
 
   # Save cluster metadata
-  cat > "${CLUSTER_DIR}/.env" <<EOF
+  cat >"${CLUSTER_DIR}/.env" <<EOF
 TAG=${tag}
 CHROME=${chrome}
 HEADLESS=${headless}
@@ -281,7 +289,7 @@ EOF
   local build_args=()
   build_args+=(--build-arg "OPENCLAW_BASE_IMAGE=ghcr.io/openclaw/openclaw:${tag}")
   if ! docker build -t "${IMAGE_NAME}:${tag}" -t "${IMAGE_NAME}:latest" \
-      "${build_args[@]}" -f "$DOCKERFILE" "$CLUSTER_DIR"; then
+    "${build_args[@]}" -f "$DOCKERFILE" "$CLUSTER_DIR"; then
     print_error "Falló el build de la imagen Docker."
     return 1
   fi
@@ -340,4 +348,100 @@ cluster_restart() {
   fi
   print_info "Reiniciando instance-${id} ..."
   instance_compose "$id" restart openclaw-gateway
+}
+
+# ---- cluster_update: pull + rebuild + recreate ---------------------------
+cluster_update() {
+  check_docker
+  print_info "Actualizando imagen de OpenClaw..."
+
+  local tag="latest"
+  if [[ -f "${CLUSTER_DIR}/.env" ]]; then
+    tag=$(grep '^TAG=' "${CLUSTER_DIR}/.env" | cut -d= -f2 || echo "latest")
+  fi
+
+  tag=$(read_input "Tag a descargar/rebuild" "$tag")
+
+  print_info "Descargando ghcr.io/openclaw/openclaw:${tag} ..."
+  docker pull "ghcr.io/openclaw/openclaw:${tag}" || print_warn "No se pudo hacer pull (puede ser normal si usas local)"
+
+  print_info "Reconstruyendo imagen cluster..."
+  if ! docker build -t "${IMAGE_NAME}:${tag}" -t "${IMAGE_NAME}:latest" \
+    --build-arg "OPENCLAW_BASE_IMAGE=ghcr.io/openclaw/openclaw:${tag}" \
+    -f "$DOCKERFILE" "$CLUSTER_DIR"; then
+    print_error "Falló el rebuild."
+    return 1
+  fi
+
+  # Update meta
+  sed -i.bak "s/^TAG=.*/TAG=${tag}/" "${CLUSTER_DIR}/.env" && rm -f "${CLUSTER_DIR}/.env.bak"
+
+  local ids=()
+  local id
+  for id in $(get_instance_ids); do
+    [[ -n "$id" ]] && ids+=("$id")
+  done
+  for id in ${ids[@]+"${ids[@]}"}; do
+    print_info "Recreando instance-${id} con nueva imagen..."
+    instance_compose "$id" up -d --force-recreate openclaw-gateway || print_warn "Falló recrear instance-${id}"
+  done
+
+  print_success "Actualización completada."
+}
+
+# ---- cluster_scale: +N (create) or -N (destroy) --------------------------
+# Reuses _create_instance from this lib for additions; calls docker compose
+# down + rm -rf for removals. Reads defaults from cluster .env.
+cluster_scale() {
+  local current
+  current=$(get_instance_count)
+  print_info "Instancias actuales: ${current}"
+
+  local action
+  action=$(read_input "¿Agregar (+N) o Eliminar (-N) instancias? (ej: +3 o -2)")
+
+  if [[ "$action" =~ ^\+([0-9]+)$ ]]; then
+    local add="${BASH_REMATCH[1]}"
+    local headless tz openrouter_api_key openrouter_model telegram_bot_token telegram_dm_policy
+    headless="yes"
+    tz="UTC"
+    openrouter_api_key=""
+    openrouter_model="openrouter/deepseek/deepseek-v4-pro"
+    telegram_bot_token=""
+    telegram_dm_policy="pairing"
+    if [[ -f "${CLUSTER_DIR}/.env" ]]; then
+      headless=$(grep '^HEADLESS=' "${CLUSTER_DIR}/.env" | cut -d= -f2 || echo "yes")
+      tz=$(grep '^TZ=' "${CLUSTER_DIR}/.env" | cut -d= -f2 || echo "UTC")
+      openrouter_api_key=$(grep '^OPENROUTER_API_KEY=' "${CLUSTER_DIR}/.env" | cut -d= -f2 || echo "")
+      openrouter_model=$(grep '^OPENROUTER_MODEL=' "${CLUSTER_DIR}/.env" | cut -d= -f2 || echo "openrouter/deepseek/deepseek-v4-pro")
+      telegram_bot_token=$(grep '^TELEGRAM_BOT_TOKEN=' "${CLUSTER_DIR}/.env" | cut -d= -f2 || echo "")
+      telegram_dm_policy=$(grep '^TELEGRAM_DM_POLICY=' "${CLUSTER_DIR}/.env" | cut -d= -f2 || echo "pairing")
+    fi
+    local start_id=$((current + 1))
+    local end_id=$((current + add))
+    local i
+    for i in $(seq "$start_id" "$end_id"); do
+      _create_instance "$i" "$headless" "$tz" "$openrouter_api_key" \
+        "$openrouter_model" "$telegram_bot_token" "$telegram_dm_policy"
+    done
+    print_success "Escalado completado. Total instancias: ${end_id}"
+
+  elif [[ "$action" =~ ^-([0-9]+)$ ]]; then
+    local rem="${BASH_REMATCH[1]}"
+    if [[ "$rem" -gt "$current" ]]; then
+      print_error "No puedes eliminar más instancias de las existentes (${current})."
+      return 1
+    fi
+    local start_id=$((current - rem + 1))
+    local i
+    for i in $(seq "$start_id" "$current"); do
+      print_info "Eliminando instance-${i} ..."
+      docker compose -f "$(instance_dir "$i")/docker-compose.yml" down --remove-orphans 2>/dev/null || true
+      rm -rf "$(instance_dir "$i")"
+    done
+    print_success "Escalado completado. Total instancias: $((current - rem))"
+  else
+    print_error "Formato inválido. Usa +N o -N."
+    return 1
+  fi
 }

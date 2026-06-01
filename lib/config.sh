@@ -37,7 +37,8 @@ cluster_config() {
   if [[ -z "$id" ]]; then
     id=$(read_input "Número de instancia a configurar")
   fi
-  local config_file; config_file="$(instance_dir "$id")/config/openclaw.json"
+  local config_file
+  config_file="$(instance_dir "$id")/config/openclaw.json"
   if [[ ! -f "$config_file" ]]; then
     print_error "Config no encontrado para instance-${id}"
     return 1
